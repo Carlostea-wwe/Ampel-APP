@@ -1,0 +1,16 @@
+{
+  "name": "Ampel KI Assistent",
+  "short_name": "Ampel KI",
+  "description": "KI-basierte Ampelerkennung für Sehbehinderte",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Traffic_light_green.svg/512px-Traffic_light_green.svg.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
