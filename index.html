@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ampel KI</title>
+  <link rel="manifest" href="./manifest.json">
+  <!-- TensorFlow.js & COCO-SSD Modell laden -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+  <style>
+    body {
+      margin: 0; padding: 0; background-color: #121212; color: white;
+      font-family: sans-serif; display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden;
+    }
+    #status-banner {
+      flex: 0 0 25%; display: flex; align-items: center; justify-content: center;
+      font-size: 2.8rem; font-weight: bold; text-transform: uppercase;
+      background-color: #333; color: white; transition: background-color 0.3s;
+      text-align: center; padding: 20px; box-sizing: border-box;
+    }
+    .status-red { background-color: #d32f2f !important; }
+    .status-green { background-color: #388e3c !important; }
+    #video-container {
+      flex: 1; position: relative; width: 100%; overflow: hidden; background: #000;
+    }
+    video, canvas {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;
+    }
+    #controls {
+      flex: 0 0 15%; display: flex; justify-content: center; align-items: center; background: #222;
+    }
+    button {
+      background: #1976d2; color: white; border: none; padding: 20px 40px;
+      font-size: 1.5rem; border-radius: 10px; cursor: pointer; width: 80%;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="status-banner">Warte auf KI...</div>
+  
+  <div id="video-container">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn" disabled>Lade KI-Modell...</button>
+  </div>
+
+  <!-- Verdecktes Hilfs-Canvas zum fehlerfreien Pixel-Auslesen -->
+  <canvas id="processCanvas" style="display:none;"></canvas>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    
+    const procCanvas = document.getElementById('processCanvas');
+    const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+
+    const banner = document.getElementById('status-banner');
+    const startBtn = document.getElementById('startBtn');
+    
+    let model = null;
+    let isRunning = false;
+    let lastState = "suche";
+    let stateCounter = 0;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js');
+    }
+
+    async function loadModel() {
+      try {
+        model = await cocoSsd.load();
+        startBtn.innerText = "Kamera starten";
+        startBtn.disabled = false;
+        banner.innerText = "Bereit";
+      } catch (err) {
+        banner.innerText = "KI Fehler";
+        console.error("Fehler beim Laden des KI-Modells:", err);
+      }
+    }
+
+    async function startCamera() {
+      const constraints = {
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      };
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+        
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        procCanvas.width = canvas.width;
+        procCanvas.height = canvas.height;
+
+        isRunning = true;
+        startBtn.style.display = "none";
+        detectLoop();
+      } catch (err) {
+        alert("Kamerazugriff fehlgeschlagen: " + err.message);
+      }
+    }
+
+    async function detectLoop() {
+      if (!isRunning) return;
+
+      procCtx.drawImage(video, 0, 0, procCanvas.width, procCanvas.height);
+
+      const predictions = await model.detect(video);
+      const trafficLights = predictions.filter(p => p.class === 'traffic light' && p.score > 0.35);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let currentState = "suche";
+
+      if (trafficLights.length > 0) {
+        const bestLight = trafficLights.reduce((max, item) => item.score > max.score ? item : max, trafficLights[0]);
+        const [x, y, width, height] = bestLight.bbox;
+
+        ctx.strokeStyle = '#FFEB3B';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(x, y, width, height);
+        ctx.fillStyle = '#FFEB3B';
+        ctx.font = '20px sans-serif';
+        ctx.fillText(`Ampel (${Math.round(bestLight.score * 100)}%)`, x, y > 25 ? y - 8 : 25);
+
+        currentState = analyzeColorInBox(x, y, width, height);
+      }
+
+      updateStatus(currentState);
+      requestAnimationFrame(detectLoop);
+    }
+
+    function analyzeColorInBox(x, y, w, h) {
+      const safeX = Math.max(0, Math.floor(x));
+      const safeY = Math.max(0, Math.floor(y));
+      const safeW = Math.min(procCanvas.width - safeX, Math.floor(w));
+      const safeH = Math.min(procCanvas.height - safeY, Math.floor(h));
+
+      if (safeW <= 0 || safeH <= 0) return "suche";
+
+      const imgData = procCtx.getImageData(safeX, safeY, safeW, safeH).data;
+      let redCount = 0;
+      let greenCount = 0;
+
+      for (let i = 0; i < imgData.length; i += 4) {
+        const r = imgData[i];
+        const g = imgData[i+1];
+        const b = imgData[i+2];
+
+        const hsv = rgbToHsv(r, g, b);
+        const hue = hsv.h * 360;
+        const sat = hsv.s;
+        const val = hsv.v;
+
+        if (sat > 0.35 && val > 0.35) {
+          if ((hue >= 0 && hue <= 18) || (hue >= 340 && hue <= 360)) {
+            redCount++;
+          } else if (hue >= 120 && hue <= 185) {
+            greenCount++;
+          }
+        }
+      }
+
+      const totalPixels = safeW * safeH;
+      const minThreshold = Math.max(8, totalPixels * 0.015);
+
+      if (greenCount > redCount && greenCount > minThreshold) return "grün";
+      if (redCount > greenCount && redCount > minThreshold) return "rot";
+
+      return "suche";
+    }
+
+    function rgbToHsv(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const d = max - min;
+      let h;
+      const s = max === 0 ? 0 : d / max;
+      const v = max;
+
+      if (max === min) {
+        h = 0;
+      } else {
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+      }
+      return { h, s, v };
+    }
+
+    function updateStatus(newState) {
+      if (newState === lastState) {
+        stateCounter++;
+      } else {
+        stateCounter = 0;
+        lastState = newState;
+      }
+
+      if (stateCounter === 3) {
+        if (newState === "suche") {
+          banner.innerText = "Suche Ampel...";
+          banner.className = "";
+        } else if (newState === "rot") {
+          banner.innerText = "ROT";
+          banner.className = "status-red";
+          speak("Rot");
+        } else if (newState === "grün") {
+          banner.innerText = "GRÜN";
+          banner.className = "status-green";
+          speak("Grün");
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+      }
+    }
+
+    function speak(text) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'de-DE';
+      utterance.rate = 1.2;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    loadModel();
+  </script>
+</body>
+</html>
