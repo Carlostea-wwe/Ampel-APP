@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ampel KI Assistent</title>
   <link rel="manifest" href="./manifest.json">
-  <!-- Roboflow SDK direkt einbinden -->
+  <!-- Roboflow SDK -->
   <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
 
   <style>
@@ -22,7 +22,7 @@
     }
     .status-red { background-color: #d32f2f !important; }
     .status-green { background-color: #388e3c !important; }
-    .status-error { background-color: #b71c1c !important; font-size: 1.4rem !important; }
+    .status-error { background-color: #b71c1c !important; font-size: 1.3rem !important; }
     #media-container {
       height: 64vh; position: relative; width: 100%; background: #000;
       display: flex; align-items: center; justify-content: center;
@@ -79,35 +79,41 @@
     }
 
     function loadModel() {
-      const apiKey = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
+      const myKey = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
 
       if (typeof roboflow === 'undefined') {
-        // Falls SDK noch nicht ganz geladen ist, nach 300ms erneut versuchen
         setTimeout(loadModel, 300);
         return;
       }
 
+      // Flexibler Auth-Aufruf für Roboflow SDK
+      let rfInstance;
       try {
-        roboflow
-          .auth({ client_token: apiKey })
-          .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
-          .then(function(loadedModel) {
-            model = loadedModel;
-            startBtn.disabled = false;
-            uploadBtn.disabled = false;
-            banner.innerText = "BEREIT";
-            banner.className = "";
-          })
-          .catch(function(err) {
-            banner.innerText = "KEY / NETZWERK FEHLER";
-            banner.className = "status-error";
-            console.error("Roboflow Fehler:", err);
-          });
-      } catch (e) {
-        banner.innerText = "SDK AUTH FEHLER";
-        banner.className = "status-error";
-        console.error("SDK Auth Fehler:", e);
+        rfInstance = roboflow.auth({ apiKey: myKey });
+      } catch (e1) {
+        try {
+          rfInstance = roboflow.auth({ client_token: myKey });
+        } catch (e2) {
+          banner.innerText = "AUTH SYNTAX FEHLER";
+          banner.className = "status-error";
+          return;
+        }
       }
+
+      rfInstance
+        .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
+        .then(function(loadedModel) {
+          model = loadedModel;
+          startBtn.disabled = false;
+          uploadBtn.disabled = false;
+          banner.innerText = "BEREIT";
+          banner.className = "";
+        })
+        .catch(function(err) {
+          banner.innerText = "MODELL-LADE FEHLER";
+          banner.className = "status-error";
+          console.error("Roboflow Ladefehler:", err);
+        });
     }
 
     async function startCamera() {
@@ -266,7 +272,6 @@
     startBtn.addEventListener('click', startCamera);
     uploadBtn.addEventListener('click', () => fileInput.click());
 
-    // Direkt starten mit automatischer Wiederholung bei Ladeverzögerung
     loadModel();
   </script>
 </body>
