@@ -1,10 +1,9 @@
-const CACHE_NAME = 'ampel-ki-v2';
+const CACHE_NAME = 'ampel-ki-roboflow-v1';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs',
-  'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd'
+  'https://cdn.roboflow.com/0.2.26/roboflow.js'
 ];
 
 self.addEventListener('install', (e) => {
