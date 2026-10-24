@@ -86,22 +86,13 @@
         return;
       }
 
-      // Flexibler Auth-Aufruf für Roboflow SDK
-      let rfInstance;
-      try {
-        rfInstance = roboflow.auth({ apiKey: myKey });
-      } catch (e1) {
-        try {
-          rfInstance = roboflow.auth({ client_token: myKey });
-        } catch (e2) {
-          banner.innerText = "AUTH SYNTAX FEHLER";
-          banner.className = "status-error";
-          return;
-        }
-      }
-
-      rfInstance
-        .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
+      // Direkter Aufruf ohne roboflow.auth()
+      roboflow
+        .load({
+          model: "pedestrian-traffic-light-puf4a",
+          version: 3,
+          apiKey: myKey
+        })
         .then(function(loadedModel) {
           model = loadedModel;
           startBtn.disabled = false;
@@ -110,7 +101,7 @@
           banner.className = "";
         })
         .catch(function(err) {
-          banner.innerText = "MODELL-LADE FEHLER";
+          banner.innerText = "MODELL FEHLER";
           banner.className = "status-error";
           console.error("Roboflow Ladefehler:", err);
         });
