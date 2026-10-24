@@ -86,12 +86,12 @@
         return;
       }
 
-      // Direkter Aufruf ohne roboflow.auth()
+      // Modell-Initialisierung über roboflow.loadModel
       roboflow
-        .load({
+        .loadModel({
           model: "pedestrian-traffic-light-puf4a",
           version: 3,
-          apiKey: myKey
+          publishable_key: myKey
         })
         .then(function(loadedModel) {
           model = loadedModel;
@@ -101,9 +101,26 @@
           banner.className = "";
         })
         .catch(function(err) {
-          banner.innerText = "MODELL FEHLER";
-          banner.className = "status-error";
-          console.error("Roboflow Ladefehler:", err);
+          console.error("Versuch 1 fehlgeschlagen, versuche Fallback...", err);
+          
+          // Fallback: Direkte Roboflow-Loader Syntax
+          roboflow
+            .load({
+              model: "pedestrian-traffic-light-puf4a/3",
+              apiKey: myKey
+            })
+            .then(function(loadedModel) {
+              model = loadedModel;
+              startBtn.disabled = false;
+              uploadBtn.disabled = false;
+              banner.innerText = "BEREIT";
+              banner.className = "";
+            })
+            .catch(function(err2) {
+              banner.innerText = "MODELL-LADE FEHLER";
+              banner.className = "status-error";
+              console.error("Roboflow Ladefehler:", err2);
+            });
         });
     }
 
