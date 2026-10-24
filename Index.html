@@ -5,40 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ampel KI Assistent</title>
   <link rel="manifest" href="./manifest.json">
-  <!-- Roboflow JS SDK einbinden -->
+  <!-- Roboflow JS SDK -->
   <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
 
   <style>
-    body {
-      margin: 0; padding: 0; background-color: #121212; color: white;
-      font-family: sans-serif; display: flex; flex-direction: column;
-      height: 100vh; overflow: hidden;
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background-color: #121212; color: white; font-family: sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
     }
     #status-banner {
-      flex: 0 0 20%; display: flex; align-items: center; justify-content: center;
-      font-size: 2.5rem; font-weight: bold; text-transform: uppercase;
-      background-color: #333; color: white; transition: background-color 0.3s;
-      text-align: center; padding: 20px; box-sizing: border-box;
+      height: 18vh; display: flex; align-items: center; justify-content: center;
+      font-size: 2.2rem; font-weight: bold; text-transform: uppercase;
+      background-color: #333; color: white; text-align: center; padding: 10px;
     }
     .status-red { background-color: #d32f2f !important; }
     .status-green { background-color: #388e3c !important; }
     #media-container {
-      flex: 1; position: relative; width: 100%; overflow: hidden; background: #000;
+      height: 64vh; position: relative; width: 100%; background: #000;
       display: flex; align-items: center; justify-content: center;
     }
     video, canvas, img {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;
     }
     #controls {
-      flex: 0 0 20%; display: flex; flex-direction: column; gap: 10px;
-      justify-content: center; align-items: center; background: #222; padding: 10px;
+      height: 18vh; display: flex; gap: 10px; justify-content: center;
+      align-items: center; background: #222; padding: 10px;
     }
     button {
-      background: #1976d2; color: white; border: none; padding: 15px 20px;
-      font-size: 1.2rem; border-radius: 10px; cursor: pointer; width: 90%; font-weight: bold;
+      flex: 1; height: 100%; max-height: 60px; color: white; border: none;
+      font-size: 1.1rem; border-radius: 10px; cursor: pointer; font-weight: bold;
     }
-    button:disabled { background: #555; }
-    .secondary-btn { background: #388e3c; }
+    #startBtn { background: #1976d2; }
+    #uploadBtn { background: #388e3c; }
+    button:disabled { background: #555 !important; opacity: 0.6; }
   </style>
 </head>
 <body>
@@ -52,8 +53,8 @@
   </div>
 
   <div id="controls">
-    <button id="startBtn" disabled>Modell wird geladen...</button>
-    <button id="uploadBtn" class="secondary-btn" disabled>Bild testen (Galerie)</button>
+    <button id="startBtn" disabled>Kamera</button>
+    <button id="uploadBtn" disabled>Foto testen</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none;">
   </div>
 
@@ -76,14 +77,13 @@
       navigator.serviceWorker.register('./sw.js');
     }
 
-    // Roboflow-Ampelmodell laden
     function loadModel() {
       roboflow
         .auth({ client_token: "rf_public" })
         .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
         .then(function(loadedModel) {
           model = loadedModel;
-          startBtn.innerText = "Live Kamera starten";
+          startBtn.innerText = "Kamera starten";
           startBtn.disabled = false;
           uploadBtn.disabled = false;
           banner.innerText = "Bereit";
@@ -94,7 +94,6 @@
         });
     }
 
-    // 1. Live-Kamera starten
     async function startCamera() {
       uploadedImg.style.display = "none";
       video.style.display = "block";
@@ -119,7 +118,6 @@
       }
     }
 
-    // Live-Kamera Schleife
     async function detectLoop() {
       if (!isRunning || !model) return;
 
@@ -129,12 +127,11 @@
       });
     }
 
-    // 2. Foto aus Galerie testen
     fileInput.addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (!file) return;
 
-      isRunning = false; // Live-Schleife stoppen
+      isRunning = false;
       if (video.srcObject) {
         video.srcObject.getTracks().forEach(track => track.stop());
       }
@@ -149,9 +146,8 @@
           canvas.width = uploadedImg.naturalWidth;
           canvas.height = uploadedImg.naturalHeight;
 
-          banner.innerText = "Analysiere Bild...";
+          banner.innerText = "Analysiere...";
 
-          // KI-Analyse auf dem hochgeladenen Foto durchführen
           model.detect(uploadedImg).then(function(predictions) {
             processPredictions(predictions, canvas.width, canvas.height, true);
           });
@@ -160,14 +156,12 @@
       reader.readAsDataURL(file);
     });
 
-    // Gemeinsame Auswertung für Live-Stream und Standbild
     function processPredictions(predictions, imgWidth, imgHeight, isSingleImage = false) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       let currentState = "suche";
 
       if (predictions && predictions.length > 0) {
-        // Schwellenwert auf 25% gesetzt für bessere Erfassung
         const validHits = predictions.filter(p => p.confidence > 0.25);
 
         if (validHits.length > 0) {
@@ -192,7 +186,6 @@
       }
 
       if (isSingleImage) {
-        // Direktes Feedback bei Testfoto ohne Entprellung
         updateStatusDirect(currentState);
       } else {
         updateStatus(currentState);
