@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ampel KI Assistent</title>
+  <link rel="manifest" href="./manifest.json">
+  <!-- Roboflow JS SDK einbinden -->
+  <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
+
+  <style>
+    body {
+      margin: 0; padding: 0; background-color: #121212; color: white;
+      font-family: sans-serif; display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden;
+    }
+    #status-banner {
+      flex: 0 0 20%; display: flex; align-items: center; justify-content: center;
+      font-size: 2.5rem; font-weight: bold; text-transform: uppercase;
+      background-color: #333; color: white; transition: background-color 0.3s;
+      text-align: center; padding: 20px; box-sizing: border-box;
+    }
+    .status-red { background-color: #d32f2f !important; }
+    .status-green { background-color: #388e3c !important; }
+    #media-container {
+      flex: 1; position: relative; width: 100%; overflow: hidden; background: #000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    video, canvas, img {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;
+    }
+    #controls {
+      flex: 0 0 20%; display: flex; flex-direction: column; gap: 10px;
+      justify-content: center; align-items: center; background: #222; padding: 10px;
+    }
+    button {
+      background: #1976d2; color: white; border: none; padding: 15px 20px;
+      font-size: 1.2rem; border-radius: 10px; cursor: pointer; width: 90%; font-weight: bold;
+    }
+    button:disabled { background: #555; }
+    .secondary-btn { background: #388e3c; }
+  </style>
+</head>
+<body>
+
+  <div id="status-banner">Lade Modell...</div>
+  
+  <div id="media-container">
+    <video id="webcam" autoplay playsinline muted style="display:none;"></video>
+    <img id="uploadedImage" style="display:none;" alt="Testbild">
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn" disabled>Modell wird geladen...</button>
+    <button id="uploadBtn" class="secondary-btn" disabled>Bild testen (Galerie)</button>
+    <input type="file" id="fileInput" accept="image/*" style="display:none;">
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const uploadedImg = document.getElementById('uploadedImage');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    const banner = document.getElementById('status-banner');
+    const startBtn = document.getElementById('startBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    
+    let model = null;
+    let isRunning = false;
+    let lastState = "suche";
+    let stateCounter = 0;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js');
+    }
+
+    // Roboflow-Ampelmodell laden
+    function loadModel() {
+      roboflow
+        .auth({ client_token: "rf_public" })
+        .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
+        .then(function(loadedModel) {
+          model = loadedModel;
+          startBtn.innerText = "Live Kamera starten";
+          startBtn.disabled = false;
+          uploadBtn.disabled = false;
+          banner.innerText = "Bereit";
+        })
+        .catch(function(err) {
+          banner.innerText = "Modell-Fehler";
+          console.error("Fehler beim Laden des Roboflow-Modells:", err);
+        });
+    }
+
+    // 1. Live-Kamera starten
+    async function startCamera() {
+      uploadedImg.style.display = "none";
+      video.style.display = "block";
+      
+      const constraints = {
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      };
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+        
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+
+        isRunning = true;
+        detectLoop();
+      } catch (err) {
+        alert("Kamerazugriff fehlgeschlagen: " + err.message);
+      }
+    }
+
+    // Live-Kamera Schleife
+    async function detectLoop() {
+      if (!isRunning || !model) return;
+
+      model.detect(video).then(function(predictions) {
+        processPredictions(predictions, canvas.width, canvas.height);
+        requestAnimationFrame(detectLoop);
+      });
+    }
+
+    // 2. Foto aus Galerie testen
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      isRunning = false; // Live-Schleife stoppen
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+      }
+      video.style.display = "none";
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        uploadedImg.src = event.target.result;
+        uploadedImg.style.display = "block";
+
+        uploadedImg.onload = function() {
+          canvas.width = uploadedImg.naturalWidth;
+          canvas.height = uploadedImg.naturalHeight;
+
+          banner.innerText = "Analysiere Bild...";
+
+          // KI-Analyse auf dem hochgeladenen Foto durchführen
+          model.detect(uploadedImg).then(function(predictions) {
+            processPredictions(predictions, canvas.width, canvas.height, true);
+          });
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Gemeinsame Auswertung für Live-Stream und Standbild
+    function processPredictions(predictions, imgWidth, imgHeight, isSingleImage = false) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let currentState = "suche";
+
+      if (predictions && predictions.length > 0) {
+        // Schwellenwert auf 25% gesetzt für bessere Erfassung
+        const validHits = predictions.filter(p => p.confidence > 0.25);
+
+        if (validHits.length > 0) {
+          const bestHit = validHits.reduce((max, p) => p.confidence > max.confidence ? p : max, validHits[0]);
+          
+          const w = bestHit.bbox.width;
+          const h = bestHit.bbox.height;
+          const x = bestHit.bbox.x - w / 2;
+          const y = bestHit.bbox.y - h / 2;
+          const classLabel = bestHit.class.toLowerCase();
+
+          ctx.strokeStyle = classLabel.includes('green') ? '#4CAF50' : '#F44336';
+          ctx.lineWidth = Math.max(4, canvas.width / 150);
+          ctx.strokeRect(x, y, w, h);
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.font = `bold ${Math.max(18, canvas.width / 30)}px sans-serif`;
+          ctx.fillText(`${classLabel.toUpperCase()} (${Math.round(bestHit.confidence * 100)}%)`, x, y > 30 ? y - 10 : 30);
+
+          if (classLabel.includes('green')) currentState = "grün";
+          if (classLabel.includes('red')) currentState = "rot";
+        }
+      }
+
+      if (isSingleImage) {
+        // Direktes Feedback bei Testfoto ohne Entprellung
+        updateStatusDirect(currentState);
+      } else {
+        updateStatus(currentState);
+      }
+    }
+
+    function updateStatusDirect(state) {
+      if (state === "suche") {
+        banner.innerText = "Keine Ampel erkannt";
+        banner.className = "";
+      } else if (state === "rot") {
+        banner.innerText = "ROT ERKANNT";
+        banner.className = "status-red";
+        speak("Rot erkannt");
+      } else if (state === "grün") {
+        banner.innerText = "GRÜN ERKANNT";
+        banner.className = "status-green";
+        speak("Grün erkannt");
+      }
+    }
+
+    function updateStatus(newState) {
+      if (newState === lastState) {
+        stateCounter++;
+      } else {
+        stateCounter = 0;
+        lastState = newState;
+      }
+
+      if (stateCounter === 3) {
+        if (newState === "suche") {
+          banner.innerText = "Suche Ampel...";
+          banner.className = "";
+        } else if (newState === "rot") {
+          banner.innerText = "ROT";
+          banner.className = "status-red";
+          speak("Rot");
+        } else if (newState === "grün") {
+          banner.innerText = "GRÜN";
+          banner.className = "status-green";
+          speak("Grün");
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+      }
+    }
+
+    function speak(text) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'de-DE';
+      utterance.rate = 1.2;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    loadModel();
+  </script>
+</body>
+</html>
