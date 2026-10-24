@@ -5,57 +5,69 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ampel KI Assistent</title>
   <link rel="manifest" href="./manifest.json">
-  <!-- Roboflow JS SDK einbinden -->
+  <!-- Roboflow JS SDK -->
   <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
 
   <style>
-    body {
-      margin: 0; padding: 0; background-color: #121212; color: white;
-      font-family: sans-serif; display: flex; flex-direction: column;
-      height: 100vh; overflow: hidden;
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background-color: #121212; color: white; font-family: sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
     }
     #status-banner {
-      flex: 0 0 25%; display: flex; align-items: center; justify-content: center;
-      font-size: 2.8rem; font-weight: bold; text-transform: uppercase;
-      background-color: #333; color: white; transition: background-color 0.3s;
-      text-align: center; padding: 20px; box-sizing: border-box;
+      height: 18vh; display: flex; align-items: center; justify-content: center;
+      font-size: 2rem; font-weight: bold; text-transform: uppercase;
+      background-color: #333; color: white; text-align: center; padding: 10px;
     }
     .status-red { background-color: #d32f2f !important; }
     .status-green { background-color: #388e3c !important; }
-    #video-container {
-      flex: 1; position: relative; width: 100%; overflow: hidden; background: #000;
+    .status-error { background-color: #b71c1c !important; font-size: 1.4rem !important; }
+    #media-container {
+      height: 64vh; position: relative; width: 100%; background: #000;
+      display: flex; align-items: center; justify-content: center;
     }
-    video, canvas {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;
+    video, canvas, img {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;
     }
     #controls {
-      flex: 0 0 15%; display: flex; justify-content: center; align-items: center; background: #222;
+      height: 18vh; display: flex; gap: 10px; justify-content: center;
+      align-items: center; background: #222; padding: 10px;
     }
     button {
-      background: #1976d2; color: white; border: none; padding: 20px 40px;
-      font-size: 1.5rem; border-radius: 10px; cursor: pointer; width: 80%; font-weight: bold;
+      flex: 1; height: 100%; max-height: 60px; color: white; border: none;
+      font-size: 1.1rem; border-radius: 10px; cursor: pointer; font-weight: bold;
     }
+    #startBtn { background: #1976d2; }
+    #uploadBtn { background: #388e3c; }
+    button:disabled { background: #555 !important; opacity: 0.5; }
   </style>
 </head>
 <body>
 
-  <div id="status-banner">Lade Modell...</div>
+  <div id="status-banner">LADE MODELL...</div>
   
-  <div id="video-container">
-    <video id="webcam" autoplay playsinline muted></video>
+  <div id="media-container">
+    <video id="webcam" autoplay playsinline muted style="display:none;"></video>
+    <img id="uploadedImage" style="display:none;" alt="Testbild">
     <canvas id="overlay"></canvas>
   </div>
 
   <div id="controls">
-    <button id="startBtn" disabled>Modell wird geladen...</button>
+    <button id="startBtn" disabled>Kamera</button>
+    <button id="uploadBtn" disabled>Foto testen</button>
+    <input type="file" id="fileInput" accept="image/*" style="display:none;">
   </div>
 
   <script>
     const video = document.getElementById('webcam');
+    const uploadedImg = document.getElementById('uploadedImage');
     const canvas = document.getElementById('overlay');
     const ctx = canvas.getContext('2d');
     const banner = document.getElementById('status-banner');
     const startBtn = document.getElementById('startBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
     
     let model = null;
     let isRunning = false;
@@ -66,24 +78,45 @@
       navigator.serviceWorker.register('./sw.js');
     }
 
-    // Roboflow-Ampelmodell laden
+    function initRoboflow() {
+      if (typeof roboflow !== 'undefined') {
+        loadModel();
+      } else {
+        setTimeout(initRoboflow, 200);
+      }
+    }
+
     function loadModel() {
-      roboflow
-        .auth({ client_token: "rf_public" })
-        .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
-        .then(function(loadedModel) {
-          model = loadedModel;
-          startBtn.innerText = "Kamera starten";
-          startBtn.disabled = false;
-          banner.innerText = "Bereit";
-        })
-        .catch(function(err) {
-          banner.innerText = "Modell-Fehler";
-          console.error("Fehler beim Laden des Roboflow-Modells:", err);
-        });
+      // Dein Roboflow API Key
+      const apiKey = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
+
+      try {
+        roboflow
+          .auth({ client_token: apiKey })
+          .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
+          .then(function(loadedModel) {
+            model = loadedModel;
+            startBtn.disabled = false;
+            uploadBtn.disabled = false;
+            banner.innerText = "BEREIT";
+            banner.className = "";
+          })
+          .catch(function(err) {
+            banner.innerText = "KEY PROBLEM";
+            banner.className = "status-error";
+            console.error("Roboflow Fehler:", err);
+          });
+      } catch (e) {
+        banner.innerText = "SDK FEHLER";
+        banner.className = "status-error";
+        console.error("SDK Fehler:", e);
+      }
     }
 
     async function startCamera() {
+      uploadedImg.style.display = "none";
+      video.style.display = "block";
+      
       const constraints = {
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
@@ -98,7 +131,6 @@
         canvas.height = video.videoHeight || 480;
 
         isRunning = true;
-        startBtn.style.display = "none";
         detectLoop();
       } catch (err) {
         alert("Kamerazugriff fehlgeschlagen: " + err.message);
@@ -109,38 +141,95 @@
       if (!isRunning || !model) return;
 
       model.detect(video).then(function(predictions) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        let currentState = "suche";
-
-        if (predictions && predictions.length > 0) {
-          // Nur Treffer mit mehr als 30% Sicherheit berücksichtigen
-          const validHits = predictions.filter(p => p.confidence > 0.3);
-
-          if (validHits.length > 0) {
-            const bestHit = validHits.reduce((max, p) => p.confidence > max.confidence ? p : max, validHits[0]);
-            
-            const w = bestHit.bbox.width;
-            const h = bestHit.bbox.height;
-            const x = bestHit.bbox.x - w / 2;
-            const y = bestHit.bbox.y - h / 2;
-            const classLabel = bestHit.class.toLowerCase();
-
-            ctx.strokeStyle = classLabel.includes('green') ? '#4CAF50' : '#F44336';
-            ctx.lineWidth = 6;
-            ctx.strokeRect(x, y, w, h);
-            ctx.fillStyle = ctx.strokeStyle;
-            ctx.font = 'bold 22px sans-serif';
-            ctx.fillText(`${classLabel.toUpperCase()} (${Math.round(bestHit.confidence * 100)}%)`, x, y > 25 ? y - 8 : 25);
-
-            if (classLabel.includes('green')) currentState = "grün";
-            if (classLabel.includes('red')) currentState = "rot";
-          }
-        }
-
-        updateStatus(currentState);
+        processPredictions(predictions, canvas.width, canvas.height);
+        requestAnimationFrame(detectLoop);
+      }).catch(err => {
+        console.error("Inferenz-Fehler:", err);
         requestAnimationFrame(detectLoop);
       });
+    }
+
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      isRunning = false;
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+      }
+      video.style.display = "none";
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        uploadedImg.src = event.target.result;
+        uploadedImg.style.display = "block";
+
+        uploadedImg.onload = function() {
+          canvas.width = uploadedImg.naturalWidth;
+          canvas.height = uploadedImg.naturalHeight;
+
+          banner.innerText = "ANALYSIERE...";
+
+          model.detect(uploadedImg).then(function(predictions) {
+            processPredictions(predictions, canvas.width, canvas.height, true);
+          }).catch(err => {
+            banner.innerText = "ANALYSE FEHLER";
+            console.error("Fehler bei Bildanalyse:", err);
+          });
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function processPredictions(predictions, imgWidth, imgHeight, isSingleImage = false) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let currentState = "suche";
+
+      if (predictions && predictions.length > 0) {
+        const validHits = predictions.filter(p => p.confidence > 0.20);
+
+        if (validHits.length > 0) {
+          const bestHit = validHits.reduce((max, p) => p.confidence > max.confidence ? p : max, validHits[0]);
+          
+          const w = bestHit.bbox.width;
+          const h = bestHit.bbox.height;
+          const x = bestHit.bbox.x - w / 2;
+          const y = bestHit.bbox.y - h / 2;
+          const classLabel = bestHit.class.toLowerCase();
+
+          ctx.strokeStyle = classLabel.includes('green') ? '#4CAF50' : '#F44336';
+          ctx.lineWidth = Math.max(4, canvas.width / 150);
+          ctx.strokeRect(x, y, w, h);
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.font = `bold ${Math.max(18, canvas.width / 30)}px sans-serif`;
+          ctx.fillText(`${classLabel.toUpperCase()} (${Math.round(bestHit.confidence * 100)}%)`, x, y > 30 ? y - 10 : 30);
+
+          if (classLabel.includes('green')) currentState = "grün";
+          if (classLabel.includes('red')) currentState = "rot";
+        }
+      }
+
+      if (isSingleImage) {
+        updateStatusDirect(currentState);
+      } else {
+        updateStatus(currentState);
+      }
+    }
+
+    function updateStatusDirect(state) {
+      if (state === "suche") {
+        banner.innerText = "KEINE AMPEL ERKANNT";
+        banner.className = "";
+      } else if (state === "rot") {
+        banner.innerText = "ROT ERKANNT";
+        banner.className = "status-red";
+        speak("Rot erkannt");
+      } else if (state === "grün") {
+        banner.innerText = "GRÜN ERKANNT";
+        banner.className = "status-green";
+        speak("Grün erkannt");
+      }
     }
 
     function updateStatus(newState) {
@@ -153,7 +242,7 @@
 
       if (stateCounter === 3) {
         if (newState === "suche") {
-          banner.innerText = "Suche Ampel...";
+          banner.innerText = "SUCHE AMPEL...";
           banner.className = "";
         } else if (newState === "rot") {
           banner.innerText = "ROT";
@@ -178,7 +267,9 @@
     }
 
     startBtn.addEventListener('click', startCamera);
-    loadModel();
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    
+    initRoboflow();
   </script>
 </body>
 </html>
