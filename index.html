@@ -58,9 +58,9 @@
   </div>
 
   <script>
-    const API_KEY = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
+    const API_KEY = "Sxl3PgSqd1emGEJ2rQuf"; // Private API Key aus Roboflow: Settings > API Keys
     const MODEL = "pedestrian-traffic-light-puf4a/3";
-    const API_URL = "https://detect.roboflow.com/" + MODEL + "?api_key=" + API_KEY + "&confidence=20";
+    const API_URL = "https://serverless.roboflow.com/" + MODEL + "?api_key=" + API_KEY + "&confidence=20";
     const MAX_SIDE = 640;       // Bild vor dem Senden verkleinern
     const LOOP_DELAY_MS = 150;  // Pause zwischen zwei Anfragen
     const ERROR_DELAY_MS = 2000;
