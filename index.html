@@ -78,6 +78,16 @@
       navigator.serviceWorker.register('./sw.js');
     }
 
+    // Wartet sicher, bis die roboflow-Bibliothek vollständig geladen ist
+    function initRoboflow() {
+      if (typeof roboflow !== 'undefined') {
+        loadModel();
+      } else {
+        // Alle 200ms prüfen, ob das SDK bereitsteht
+        setTimeout(initRoboflow, 200);
+      }
+    }
+
     function loadModel() {
       try {
         roboflow
@@ -96,9 +106,9 @@
             console.error("Roboflow Fehler:", err);
           });
       } catch (e) {
-        banner.innerText = "SDK FEHLER";
+        banner.innerText = "SDK INITIALISIERUNG";
         banner.className = "status-error";
-        console.error("SDK Initialisierungsfehler:", e);
+        console.error("SDK Fehler:", e);
       }
     }
 
@@ -258,8 +268,8 @@
     startBtn.addEventListener('click', startCamera);
     uploadBtn.addEventListener('click', () => fileInput.click());
     
-    // Direktes Laden ausführen
-    loadModel();
+    // Sicheren Start aufrufen
+    initRoboflow();
   </script>
 </body>
 </html>
