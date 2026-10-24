@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ampel KI Assistent</title>
   <link rel="manifest" href="./manifest.json">
-  <!-- Roboflow JS SDK -->
-  <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
-
   <style>
     * { box-sizing: border-box; }
     html, body {
@@ -42,6 +39,8 @@
     #uploadBtn { background: #388e3c; }
     button:disabled { background: #555 !important; opacity: 0.5; }
   </style>
+  <!-- Roboflow SDK lädt und startet danach direkt loadModel() -->
+  <script src="https://cdn.roboflow.com/0.2.26/roboflow.js" onload="loadModel()"></script>
 </head>
 <body>
 
@@ -78,17 +77,14 @@
       navigator.serviceWorker.register('./sw.js');
     }
 
-    function initRoboflow() {
-      if (typeof roboflow !== 'undefined') {
-        loadModel();
-      } else {
-        setTimeout(initRoboflow, 200);
-      }
-    }
-
     function loadModel() {
-      // Dein Roboflow API Key
       const apiKey = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
+
+      if (typeof roboflow === 'undefined') {
+        banner.innerText = "SDK NICHT GELADEN";
+        banner.className = "status-error";
+        return;
+      }
 
       try {
         roboflow
@@ -102,14 +98,14 @@
             banner.className = "";
           })
           .catch(function(err) {
-            banner.innerText = "KEY PROBLEM";
+            banner.innerText = "KEY / NETWORK PROBLEM";
             banner.className = "status-error";
             console.error("Roboflow Fehler:", err);
           });
       } catch (e) {
-        banner.innerText = "SDK FEHLER";
+        banner.innerText = "SDK AUTH FEHLER";
         banner.className = "status-error";
-        console.error("SDK Fehler:", e);
+        console.error("SDK Auth Fehler:", e);
       }
     }
 
@@ -268,8 +264,6 @@
 
     startBtn.addEventListener('click', startCamera);
     uploadBtn.addEventListener('click', () => fileInput.click());
-    
-    initRoboflow();
   </script>
 </body>
 </html>
