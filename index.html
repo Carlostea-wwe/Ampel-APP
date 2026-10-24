@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ampel KI Assistent</title>
   <link rel="manifest" href="./manifest.json">
-  <!-- Roboflow SDK -->
-  <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
+  
+  <!-- Aktuelles Roboflow Inference SDK (v1) -->
+  <script src="https://cdn.jsdelivr.net/npm/inferencejs"></script>
 
   <style>
     * { box-sizing: border-box; }
@@ -78,50 +79,53 @@
       navigator.serviceWorker.register('./sw.js');
     }
 
-    function loadModel() {
-      const myKey = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
+    async function loadModel() {
+      const apiKey = "rf_WLZEJ3Wckndc5o2YVKbRi93PCjz1";
 
-      if (typeof roboflow === 'undefined') {
+      // Prüfen ob inferencejs geladen wurde
+      if (typeof inference === 'undefined' && typeof InferenceEngine === 'undefined') {
         setTimeout(loadModel, 300);
         return;
       }
 
-      // Modell-Initialisierung über roboflow.loadModel
-      roboflow
-        .loadModel({
+      try {
+        const Engine = window.InferenceEngine || inference.InferenceEngine;
+        const inferEngine = new Engine();
+        
+        // Modell laden
+        model = await inferEngine.load({
           model: "pedestrian-traffic-light-puf4a",
           version: 3,
-          publishable_key: myKey
-        })
-        .then(function(loadedModel) {
-          model = loadedModel;
-          startBtn.disabled = false;
-          uploadBtn.disabled = false;
-          banner.innerText = "BEREIT";
-          banner.className = "";
-        })
-        .catch(function(err) {
-          console.error("Versuch 1 fehlgeschlagen, versuche Fallback...", err);
-          
-          // Fallback: Direkte Roboflow-Loader Syntax
-          roboflow
-            .load({
-              model: "pedestrian-traffic-light-puf4a/3",
-              apiKey: myKey
-            })
-            .then(function(loadedModel) {
-              model = loadedModel;
-              startBtn.disabled = false;
-              uploadBtn.disabled = false;
-              banner.innerText = "BEREIT";
-              banner.className = "";
-            })
-            .catch(function(err2) {
-              banner.innerText = "MODELL-LADE FEHLER";
-              banner.className = "status-error";
-              console.error("Roboflow Ladefehler:", err2);
-            });
+          apiKey: apiKey
         });
+
+        startBtn.disabled = false;
+        uploadBtn.disabled = false;
+        banner.innerText = "BEREIT";
+        banner.className = "";
+      } catch (err) {
+        console.error("Inference Engine Fehler, versuche direktes SDK...", err);
+        
+        // Fallback falls v0.2.26 geladen wurde
+        if (typeof roboflow !== 'undefined') {
+          roboflow.load({
+            model: "pedestrian-traffic-light-puf4a/3",
+            apiKey: apiKey
+          }).then(m => {
+            model = m;
+            startBtn.disabled = false;
+            uploadBtn.disabled = false;
+            banner.innerText = "BEREIT";
+            banner.className = "";
+          }).catch(e => {
+            banner.innerText = "MODELL FEHLER";
+            banner.className = "status-error";
+          });
+        } else {
+          banner.innerText = "MODELL FEHLER";
+          banner.className = "status-error";
+        }
+      }
     }
 
     async function startCamera() {
@@ -151,13 +155,13 @@
     async function detectLoop() {
       if (!isRunning || !model) return;
 
-      model.detect(video).then(function(predictions) {
+      try {
+        const predictions = await model.detect(video);
         processPredictions(predictions, canvas.width, canvas.height);
-        requestAnimationFrame(detectLoop);
-      }).catch(err => {
-        console.error("Inferenz-Fehler:", err);
-        requestAnimationFrame(detectLoop);
-      });
+      } catch (e) {
+        console.error(e);
+      }
+      requestAnimationFrame(detectLoop);
     }
 
     fileInput.addEventListener('change', function(e) {
@@ -175,18 +179,19 @@
         uploadedImg.src = event.target.result;
         uploadedImg.style.display = "block";
 
-        uploadedImg.onload = function() {
+        uploadedImg.onload = async function() {
           canvas.width = uploadedImg.naturalWidth;
           canvas.height = uploadedImg.naturalHeight;
 
           banner.innerText = "ANALYSIERE...";
 
-          model.detect(uploadedImg).then(function(predictions) {
+          try {
+            const predictions = await model.detect(uploadedImg);
             processPredictions(predictions, canvas.width, canvas.height, true);
-          }).catch(err => {
+          } catch (err) {
             banner.innerText = "ANALYSE FEHLER";
-            console.error("Fehler bei Bildanalyse:", err);
-          });
+            console.error(err);
+          }
         };
       };
       reader.readAsDataURL(file);
@@ -198,23 +203,33 @@
       let currentState = "suche";
 
       if (predictions && predictions.length > 0) {
-        const validHits = predictions.filter(p => p.confidence > 0.20);
+        const validHits = predictions.filter(p => (p.confidence || p.score || 0) > 0.20);
 
         if (validHits.length > 0) {
-          const bestHit = validHits.reduce((max, p) => p.confidence > max.confidence ? p : max, validHits[0]);
+          const bestHit = validHits.reduce((max, p) => (p.confidence || p.score) > (max.confidence || max.score) ? p : max, validHits[0]);
           
-          const w = bestHit.bbox.width;
-          const h = bestHit.bbox.height;
-          const x = bestHit.bbox.x - w / 2;
-          const y = bestHit.bbox.y - h / 2;
-          const classLabel = bestHit.class.toLowerCase();
+          let x, y, w, h;
+          if (bestHit.bbox) {
+            w = bestHit.bbox.width;
+            h = bestHit.bbox.height;
+            x = bestHit.bbox.x - w / 2;
+            y = bestHit.bbox.y - h / 2;
+          } else {
+            x = bestHit.x;
+            y = bestHit.y;
+            w = bestHit.width;
+            h = bestHit.height;
+          }
+
+          const classLabel = (bestHit.class || bestHit.label || "").toLowerCase();
+          const conf = Math.round((bestHit.confidence || bestHit.score || 0) * 100);
 
           ctx.strokeStyle = classLabel.includes('green') ? '#4CAF50' : '#F44336';
           ctx.lineWidth = Math.max(4, canvas.width / 150);
           ctx.strokeRect(x, y, w, h);
           ctx.fillStyle = ctx.strokeStyle;
           ctx.font = `bold ${Math.max(18, canvas.width / 30)}px sans-serif`;
-          ctx.fillText(`${classLabel.toUpperCase()} (${Math.round(bestHit.confidence * 100)}%)`, x, y > 30 ? y - 10 : 30);
+          ctx.fillText(`${classLabel.toUpperCase()} (${conf}%)`, x, y > 30 ? y - 10 : 30);
 
           if (classLabel.includes('green')) currentState = "grün";
           if (classLabel.includes('red')) currentState = "rot";
