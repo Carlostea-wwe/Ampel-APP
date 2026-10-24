@@ -17,11 +17,12 @@
     }
     #status-banner {
       height: 18vh; display: flex; align-items: center; justify-content: center;
-      font-size: 2.2rem; font-weight: bold; text-transform: uppercase;
+      font-size: 2rem; font-weight: bold; text-transform: uppercase;
       background-color: #333; color: white; text-align: center; padding: 10px;
     }
     .status-red { background-color: #d32f2f !important; }
     .status-green { background-color: #388e3c !important; }
+    .status-error { background-color: #b71c1c !important; font-size: 1.4rem !important; }
     #media-container {
       height: 64vh; position: relative; width: 100%; background: #000;
       display: flex; align-items: center; justify-content: center;
@@ -39,12 +40,12 @@
     }
     #startBtn { background: #1976d2; }
     #uploadBtn { background: #388e3c; }
-    button:disabled { background: #555 !important; opacity: 0.6; }
+    button:disabled { background: #555 !important; opacity: 0.5; }
   </style>
 </head>
 <body>
 
-  <div id="status-banner">Lade Modell...</div>
+  <div id="status-banner">LADE MODELL...</div>
   
   <div id="media-container">
     <video id="webcam" autoplay playsinline muted style="display:none;"></video>
@@ -78,20 +79,27 @@
     }
 
     function loadModel() {
-      roboflow
-        .auth({ client_token: "rf_public" })
-        .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
-        .then(function(loadedModel) {
-          model = loadedModel;
-          startBtn.innerText = "Kamera starten";
-          startBtn.disabled = false;
-          uploadBtn.disabled = false;
-          banner.innerText = "Bereit";
-        })
-        .catch(function(err) {
-          banner.innerText = "Modell-Fehler";
-          console.error("Fehler beim Laden des Roboflow-Modells:", err);
-        });
+      try {
+        roboflow
+          .auth({ client_token: "rf_public" })
+          .load({ model: "pedestrian-traffic-light-puf4a", version: 3 })
+          .then(function(loadedModel) {
+            model = loadedModel;
+            startBtn.disabled = false;
+            uploadBtn.disabled = false;
+            banner.innerText = "BEREIT";
+            banner.className = "";
+          })
+          .catch(function(err) {
+            banner.innerText = "FEHLER BEIM LADEN";
+            banner.className = "status-error";
+            console.error("Roboflow Fehler:", err);
+          });
+      } catch (e) {
+        banner.innerText = "SDK FEHLER";
+        banner.className = "status-error";
+        console.error("SDK Initialisierungsfehler:", e);
+      }
     }
 
     async function startCamera() {
@@ -124,6 +132,9 @@
       model.detect(video).then(function(predictions) {
         processPredictions(predictions, canvas.width, canvas.height);
         requestAnimationFrame(detectLoop);
+      }).catch(err => {
+        console.error("Inferenz-Fehler:", err);
+        requestAnimationFrame(detectLoop);
       });
     }
 
@@ -146,10 +157,13 @@
           canvas.width = uploadedImg.naturalWidth;
           canvas.height = uploadedImg.naturalHeight;
 
-          banner.innerText = "Analysiere...";
+          banner.innerText = "ANALYSIERE...";
 
           model.detect(uploadedImg).then(function(predictions) {
             processPredictions(predictions, canvas.width, canvas.height, true);
+          }).catch(err => {
+            banner.innerText = "ANALYSE FEHLER";
+            console.error("Fehler bei Bildanalyse:", err);
           });
         };
       };
@@ -162,7 +176,7 @@
       let currentState = "suche";
 
       if (predictions && predictions.length > 0) {
-        const validHits = predictions.filter(p => p.confidence > 0.25);
+        const validHits = predictions.filter(p => p.confidence > 0.20);
 
         if (validHits.length > 0) {
           const bestHit = validHits.reduce((max, p) => p.confidence > max.confidence ? p : max, validHits[0]);
@@ -194,7 +208,7 @@
 
     function updateStatusDirect(state) {
       if (state === "suche") {
-        banner.innerText = "Keine Ampel erkannt";
+        banner.innerText = "KEINE AMPEL ERKANNT";
         banner.className = "";
       } else if (state === "rot") {
         banner.innerText = "ROT ERKANNT";
@@ -217,7 +231,7 @@
 
       if (stateCounter === 3) {
         if (newState === "suche") {
-          banner.innerText = "Suche Ampel...";
+          banner.innerText = "SUCHE AMPEL...";
           banner.className = "";
         } else if (newState === "rot") {
           banner.innerText = "ROT";
@@ -243,6 +257,8 @@
 
     startBtn.addEventListener('click', startCamera);
     uploadBtn.addEventListener('click', () => fileInput.click());
+    
+    // Direktes Laden ausführen
     loadModel();
   </script>
 </body>
